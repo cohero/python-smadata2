@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/python3
 #
 # smadata2.db - Database for logging data from SMA inverters
 # Copyright (C) 2014 David Gibson <david@gibson.dropbear.id.au>
@@ -17,25 +17,28 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-from __future__ import print_function
-
-import os
 import shutil
 import re
 import sqlite3
+import time
+import datetime
 
-from base import *
+from .. import datetimeutil
 
+from .base import BaseDatabase, WrongSchema, StaleResults
+from .base import STALE_SECONDS
+from .base import SAMPLETYPES, SAMPLE_INV_FAST, SAMPLE_INV_DAILY
 
 all = ['SQLiteDatabase']
 
-_whitespace = re.compile('\s+')
+_whitespace = re.compile('\\s+')
+
 
 def squash_schema(sqls):
-    l = []
+    tmp = []
     for sql in sqls:
-        l.append(_whitespace.sub(' ', sql.strip()))
-    return frozenset(l)
+        tmp.append(_whitespace.sub(' ', sql.strip()))
+    return frozenset(tmp)
 
 
 def sqlite_schema(conn):
@@ -47,12 +50,16 @@ def sqlite_schema(conn):
 
 class SQLiteDatabase(BaseDatabase):
     DDL = [
-"""CREATE TABLE generation (inverter_serial INTEGER,
-                            timestamp INTEGER,
-                            total_yield INTEGER,
-                            PRIMARY KEY (inverter_serial, timestamp))""",
-"""CREATE TABLE pvoutput (sid STRING,
-                          last_datetime_uploaded INTEGER)""",
+        """CREATE TABLE "generation"
+                  (inverter_serial INTEGER NOT NULL,
+                   timestamp INTEGER NOT NULL,
+                   sample_type INTEGER CHECK (""" +
+        " OR ".join(["sample_type = %d" % x for x in SAMPLETYPES]) + """),
+                   total_yield INTEGER,
+                   PRIMARY KEY (inverter_serial,
+                                timestamp, sample_type))""",
+        """CREATE TABLE pvoutput (sid STRING,
+                                  last_datetime_uploaded INTEGER)""",
     ]
 
     def __init__(self, filename):
@@ -67,14 +74,14 @@ class SQLiteDatabase(BaseDatabase):
     def commit(self):
         self.conn.commit()
 
-    def add_historic(self, serial, timestamp, total_yield):
+    def add_sample(self, serial, timestamp, sample_type, total_yield):
         c = self.conn.cursor()
-        c.execute("INSERT INTO generation"
-                  + " (inverter_serial, timestamp, total_yield)"
-                  + " VALUES (?, ?, ?);",
-                  (serial, timestamp, total_yield))
+        c.execute("INSERT INTO generation" +
+                  " (inverter_serial, timestamp, sample_type, total_yield)" +
+                  " VALUES (?, ?, ?, ?);",
+                  (serial, timestamp, sample_type, total_yield))
 
-    def get_one_historic(self, serial, timestamp):
+    def get_one_sample(self, serial, timestamp):
         c = self.conn.cursor()
         c.execute("SELECT total_yield FROM generation"
                   " WHERE inverter_serial = ?"
@@ -83,32 +90,67 @@ class SQLiteDatabase(BaseDatabase):
         if r is not None:
             return r[0]
 
-    def get_last_historic(self, serial):
+    def get_last_sample(self, serial, sample_type=None):
         c = self.conn.cursor()
-        c.execute("SELECT max(timestamp) FROM generation"
-                  " WHERE inverter_serial = ?", (serial,))
+        if sample_type is None:
+            c.execute("SELECT max(timestamp) FROM generation"
+                      " WHERE inverter_serial = ?", (serial,))
+        else:
+            c.execute("SELECT max(timestamp) FROM generation"
+                      " WHERE inverter_serial = ? AND sample_type = ?",
+                      (serial, sample_type))
         r = c.fetchone()
         return r[0]
 
-    def get_aggregate_one_historic(self, ts, ids):
+    def get_aggregate_one_sample(self, ts, ids,
+                                 sample_type=SAMPLE_INV_FAST):
         c = self.conn.cursor()
         c.execute("SELECT sum(total_yield) FROM generation"
                   " WHERE inverter_serial IN(" + ",".join("?" * len(ids)) + ")"
                   " AND timestamp = ?"
-                  " GROUP BY timestamp", tuple(ids) + (ts,))
+                  " AND sample_type = ?"
+                  " GROUP BY timestamp",
+                  tuple(ids) + (ts, sample_type))
         r = c.fetchall()
         if not r:
             return None
         assert(len(r) == 1)
         return r[0][0]
 
-    def get_aggregate_historic(self, from_ts, to_ts, ids):
+    def get_yield_at(self, ts, ids,
+                     sample_type=SAMPLE_INV_FAST):
         c = self.conn.cursor()
-        c.execute("SELECT timestamp, sum(total_yield) FROM generation"
+        c.execute("SELECT max(total_yield), max(timestamp),"
+                  " inverter_serial FROM generation"
                   " WHERE inverter_serial IN (" + ",".join("?" * len(ids)) + ")"
-                  + " AND timestamp >= ? AND timestamp < ?"
-                  + " GROUP BY timestamp ORDER BY timestamp ASC",
-                  tuple(ids) + (from_ts, to_ts))
+                  " AND timestamp < ?"
+                  " GROUP BY inverter_serial",
+                  tuple(ids) + (ts,))
+        r = c.fetchall()
+        if not r:
+            return None
+        assert(len(r) == len(ids))
+        total = 0
+        for yield_, timestamp, serial in r:
+            total += yield_
+            stale = ts - timestamp
+            if stale > STALE_SECONDS:
+                msg = "Latest data from inverter {} is at {} ({} days, {} hours stale)"
+                oldtime = datetimeutil.format_time(timestamp)
+                stalehours = round(stale / 60 / 60)
+                raise StaleResults(msg.format(serial, oldtime,
+                                              stalehours // 24,
+                                              stalehours % 24))
+        return total
+        
+    def get_aggregate_samples(self, from_ts, to_ts, ids):
+        c = self.conn.cursor()
+        template = ("SELECT timestamp, sum(total_yield) FROM generation" +
+                    " WHERE inverter_serial IN (" +
+                    ",".join("?" * len(ids)) +
+                    ") AND timestamp >= ? AND timestamp < ?" +
+                    " GROUP BY timestamp ORDER BY timestamp ASC")
+        c.execute(template, tuple(ids) + (from_ts, to_ts))
         return c.fetchall()
 
     # return midnights for each day in the database
@@ -117,13 +159,14 @@ class SQLiteDatabase(BaseDatabase):
     def midnights(self, inverters):
         c = self.conn.cursor()
         serials = ','.join(x.serial for x in inverters)
-        c.execute("SELECT distinct(timestamp) "
-                  "FROM generation "
-                  "WHERE inverter_serial  in ( ? ) "
-                  "AND timestamp % 86400 = 0 "
-                  "ORDER BY timestamp ASC", (serials,))
+        template = """SELECT distinct(timestamp)
+        FROM generation
+        WHERE inverter_serial  in ( ? )
+        AND timestamp % 86400 = 0
+        ORDER BY timestamp ASC"""
+        c.execute(template, (serials,))
         r = c.fetchall()
-        r = map(lambda x: datetime.datetime.utcfromtimestamp(x[0]), r)
+        r = [datetime.datetime.utcfromtimestamp(x[0]) for x in r]
         return r
 
     def get_datapoint_totals_for_day(self, inverters, start_datetime):
@@ -221,11 +264,11 @@ def create_from_empty(conn):
 
 
 SCHEMA_NOPVO = squash_schema((
-"""CREATE TABLE generation (inverter_serial INTEGER,
-                            timestamp INTEGER,
-                            total_yield INTEGER,
-                            PRIMARY KEY (inverter_serial, timestamp))""",
-"""CREATE TABLE schema (magic INTEGER, version INTEGER)"""))
+    """CREATE TABLE generation (inverter_serial INTEGER,
+                                timestamp INTEGER,
+                                total_yield INTEGER,
+                                PRIMARY KEY (inverter_serial, timestamp))""",
+    """CREATE TABLE schema (magic INTEGER, version INTEGER)"""))
 
 
 def update_nopvo(conn):
@@ -236,13 +279,13 @@ def update_nopvo(conn):
 
 
 SCHEMA_V0 = squash_schema((
-"""CREATE TABLE generation (inverter_serial INTEGER,
-                            timestamp INTEGER,
-                            total_yield INTEGER,
-                            PRIMARY KEY (inverter_serial, timestamp))""",
-"""CREATE TABLE schema (magic INTEGER, version INTEGER)""",
-"""CREATE TABLE pvoutput (sid STRING,
-                          last_datetime_uploaded INTEGER)"""))
+    """CREATE TABLE generation (inverter_serial INTEGER,
+                                timestamp INTEGER,
+                                total_yield INTEGER,
+                                PRIMARY KEY (inverter_serial, timestamp))""",
+    """CREATE TABLE schema (magic INTEGER, version INTEGER)""",
+    """CREATE TABLE pvoutput (sid STRING,
+                              last_datetime_uploaded INTEGER)"""))
 
 
 def update_v0(conn):
@@ -251,12 +294,44 @@ def update_v0(conn):
     conn.commit()
 
 
+SCHEMA_V2_3 = squash_schema((
+    """CREATE TABLE generation (inverter_serial INTEGER,
+                                timestamp INTEGER,
+                                total_yield INTEGER,
+                                PRIMARY KEY (inverter_serial,
+                                             timestamp))""",
+    """CREATE TABLE pvoutput (sid STRING,
+                              last_datetime_uploaded INTEGER)"""))
+
+
+def update_v2_3(conn):
+    conn.execute("""CREATE TABLE "new_generation"
+                           (inverter_serial INTEGER NOT NULL,
+                            timestamp INTEGER NOT NULL,
+                            sample_type INTEGER CHECK (""" +
+                 " OR ".join(["sample_type = %d" % x for x in SAMPLETYPES]) +
+                 """),
+                            total_yield INTEGER,
+                            PRIMARY KEY (inverter_serial,
+                                        timestamp, sample_type))""")
+    conn.execute("""INSERT INTO new_generation (inverter_serial, timestamp,
+                                                sample_type, total_yield)
+                        SELECT inverter_serial, timestamp, ?, total_yield
+                               FROM generation""", (SAMPLE_INV_FAST,))
+    conn.execute("DROP TABLE generation")
+    conn.execute("ALTER TABLE new_generation RENAME TO generation")
+    conn.commit()
+    conn.execute("VACUUM")
+
+
 _schema_table = {
     SCHEMA_CURRENT: None,
     SCHEMA_EMPTY: create_from_empty,
     SCHEMA_V0: update_v0,
     SCHEMA_NOPVO: update_nopvo,
+    SCHEMA_V2_3: update_v2_3,
 }
+
 
 def try_open(filename):
     try:
@@ -289,7 +364,8 @@ def create_or_update(filename):
         new_schema = sqlite_schema(conn)
 
         assert old_schema != new_schema
-        assert new_schema in _schema_table
+        assert new_schema in _schema_table, \
+            "Unexpected final schema %s" % new_schema
 
         del conn
 

@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/python3
 #
 # smadata2.db.base - Abstract database interface
 # Copyright (C) 2014 David Gibson <david@gibson.dropbear.id.au>
@@ -17,12 +17,21 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-from __future__ import print_function
-
 import abc
 
+# Ad hoc samples, externally controlled
+SAMPLE_ADHOC = 0
+# Inverter recorded high(ish) frequency samples
+SAMPLE_INV_FAST = 1
+# Inverted recorded daily samples
+SAMPLE_INV_DAILY = 2
 
-all = ['Error', 'WrongSchema']
+SAMPLETYPES = [SAMPLE_ADHOC, SAMPLE_INV_FAST, SAMPLE_INV_DAILY]
+
+all = ['Error', 'WrongSchema', 'StaleResults',
+       'STALE_SECONDS',
+       'SAMPLE_ADHOC', 'SAMPLE_INV_FAST', 'SAMPLE_INV_DAILY',
+       'SAMPLETYPES']
 
 
 class Error(Exception):
@@ -33,17 +42,30 @@ class WrongSchema(Error):
     pass
 
 
-class BaseDatabase(object):
-    __metaclass__ = abc.ABCMeta
+# For yieldat, complain if we can't find results less than a day old
+STALE_SECONDS = 24*60*60
 
+class StaleResults(Error):
+    pass
+
+
+class BaseDatabase(object, metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def add_historic(self, serial, timestamp, total_yield):
+    def add_sample(self, serial, timestamp, sample_type, total_yield):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def get_one_historic(self, serial, timestamp):
+    def get_one_sample(self, serial, timestamp):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def get_last_historic(self, serial):
+    def get_last_sample(self, serial, sample_type=None):
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def get_aggregate_one_sample(self, ts, ids):
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def get_aggregate_samples(self, from_ts, to_ts, ids):
         raise NotImplementedError()

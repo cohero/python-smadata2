@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/python3
 #
 # smadata2.db - Database for logging data from SMA inverters
 # Copyright (C) 2014 David Gibson <david@gibson.dropbear.id.au>
@@ -17,7 +17,11 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-from __future__ import print_function
+from .base import WrongSchema
+from .base import SAMPLETYPES, SAMPLE_ADHOC, SAMPLE_INV_FAST, SAMPLE_INV_DAILY
 
-from base import *
-from sqlite import *
+from .sqlite import SQLiteDatabase
+
+__all__ = [WrongSchema,
+           SAMPLETYPES, SAMPLE_ADHOC, SAMPLE_INV_FAST, SAMPLE_INV_DAILY,
+           SQLiteDatabase]

@@ -1,11 +1,11 @@
-#! /usr/bin/env python
+#! /usr/bin/python3
 
 import os
 import datetime
 import time
 import dateutil
 
-from nose.tools import *
+from nose.tools import assert_equals
 from nose.plugins.attrib import attr
 
 import smadata2.config
@@ -47,7 +47,7 @@ def test_format_datetime():
 
 
 def requestkey(script, args):
-    return (script, frozenset(args.items()))
+    return (script, frozenset(list(args.items())))
 
 
 class MockAPI(smadata2.pvoutputorg.API):
@@ -83,7 +83,8 @@ class RealAPIChecker(object):
         if not os.path.exists(self.CONFIGFILE):
             raise AssertionError("This test needs a special configuration")
 
-        self.config = smadata2.config.SMAData2Config("smadata2-test-pvoutput.json")
+        self.config = \
+            smadata2.config.SMAData2Config("smadata2-test-pvoutput.json")
         self.system = self.config.systems()[0]
         assert_equals(self.system.name, "test")
 
@@ -102,7 +103,7 @@ class RealAPIChecker(object):
     def tearDown(self):
         self.api.deletestatus(self.date)
         self.delay()
-        
+
 
 @attr("pvoutput.org")
 class TestRealAPI(RealAPIChecker):
@@ -124,7 +125,7 @@ class TestRealAPI(RealAPIChecker):
         self.delay()
 
         results = self.api.getstatus(self.date)
-        assert_equal(results, [(dt0, 0), (dt1, 7)])
+        assert_equals(results, [(dt0, 0), (dt1, 7)])
 
     def test_addbatch(self):
         dt0 = datetime.datetime.combine(self.date, datetime.time(10, 0, 0))

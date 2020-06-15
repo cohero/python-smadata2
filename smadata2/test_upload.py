@@ -1,19 +1,17 @@
-#! /usr/bin/env python
+#! /usr/bin/python3
 
-import StringIO
-import os.path
-import unittest
-import time
 import datetime
 import dateutil.tz
 import json
 
-from nose.tools import *
+from nose.tools import assert_equals
 
 import smadata2.upload
 import smadata2.check
 import smadata2.db.sqlite
 from smadata2.db.tests import SQLiteDBChecker
+from smadata2.db import SAMPLE_ADHOC
+
 
 def test_prepare1():
     dawn = 8*3600
@@ -26,7 +24,7 @@ def test_prepare1():
                                                    data, dateutil.tz.tzutc())
 
     dtdawn = datetime.datetime(1970, 1, 1, 8, tzinfo=dateutil.tz.tzutc())
-    dtdusk = datetime.datetime(1970, 1, 1, 20, tzinfo=dateutil.tz.tzutc())
+    # dtdusk = datetime.datetime(1970, 1, 1, 20, tzinfo=dateutil.tz.tzutc())
 
     assert_equals(len(output), (dusk - dawn) / 300)
     for i, (dt, y) in enumerate(output):
@@ -59,10 +57,11 @@ class TestLoad(SQLiteDBChecker):
         dusk = daystart + 20*3600
         dayend = daystart + 24*3600
 
-        data = smadata2.check.generate_linear(daystart, dawn, dusk, dayend, 12345, 1)
+        data = smadata2.check.generate_linear(daystart, dawn, dusk, dayend,
+                                              12345, 1)
 
         for ts, y in data:
-            self.db.add_historic("TESTSERIAL", ts, y)
+            self.db.add_sample("TESTSERIAL", ts, SAMPLE_ADHOC, y)
 
         outdata = smadata2.upload.load_data_for_date(self.db, sc, date)
 

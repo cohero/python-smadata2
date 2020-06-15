@@ -1,9 +1,6 @@
 import time
 import datetime
 
-import upload
-import datetimeutil
-
 
 class PVOutputUploader(object):
     def __init__(self, db, system, pvoutput):
@@ -23,7 +20,6 @@ class PVOutputUploader(object):
     # @fixme move this batching into pvoutput
     def send_production(self, entries):
         batch = []
-        last_total_production = -1		# unlikely...
 
         too_old_in_days = self.pvoutput.days_ago_accepted_by_api()
 
@@ -39,19 +35,17 @@ class PVOutputUploader(object):
 
             # 14 day limit on API - only upload the last 13 days of data:
             if (time.time() - timestamp) > (too_old_in_days*24*60*60 - 600):
-                    print("Skipping too-old datapoint @" + str(timestamp))
+                    print(("Skipping too-old datapoint @" + str(timestamp)))
                     continue
 
             dt = datetime.datetime.fromtimestamp(timestamp)
             batch.append([dt, total_production])
 
-            last_total_production = total_production
-
             if len(batch) == self.pvoutput.batchstatus_count_accepted_by_api():
                 if havesent:
                     # if we do *not* wait, other requests can get served
                     # first.  The API wants stuff *in order*!  Sucks.
-                    print("sleeping %d" % timeout)
+                    print(("sleeping %d" % timeout))
                     time.sleep(timeout)
                 else:
                     havesent = True
@@ -111,21 +105,21 @@ class PVOutputUploader(object):
             self.db.pvoutput_set_last_datetime_uploaded(sid, 0)
             last_datetime = self.db.pvoutput_get_last_datetime_uploaded(sid)
 
-        print("last_datetime=%d" % last_datetime)
+        print(("last_datetime=%d" % last_datetime))
         prods = self.db.get_productions_younger_than(self.system.inverters(),
                                                      last_datetime)
         print("prods")
-        print len(prods)
+        print(len(prods))
         new_prods = self.trim_unwanted_unuploaded_statuses(last_datetime,
                                                            prods)
         print("new_prods")
-        print len(new_prods)
+        print(len(new_prods))
         prods = new_prods
         if prods:
             self.send_production(prods)
             new_last = prods[-1]
             new_last_datetime = new_last[0]
-            print("new ldate_datetime=" + str(new_last_datetime))
+            print(("new ldate_datetime=" + str(new_last_datetime)))
             self.db.pvoutput_set_last_datetime_uploaded(sid, new_last_datetime)
         else:
             print("No un-uploaded production")
@@ -134,15 +128,17 @@ class PVOutputUploader(object):
     # @param day day to upload for
     # @note The day *must be over* for this not to screw you over.
     # @note no way to tell if all inverters have reported in....
-    def upload_statuses_for_day(self, day):
-        date = day.date()
-        ts_start, ts_end = datetimeutil.day_timestamps(date, self.system.timezone())
-        ids = [i.serial for i in self.system.inverters()]
-
-        entries = db.get_aggregate_historic(ts_start, ts_end, ids)
-        entries = prepare_data_for_date(date, results, sc.timezone())
-
-        self.send_production(entries)
+    # def upload_statuses_for_day(self, day):
+    #     date = day.date()
+    #     ts_start, ts_end = datetimeutil.day_timestamps(date,
+    #                                                    self.system.timezone())
+    #     ids = [i.serial for i in self.system.inverters()]
+    #
+    #     entries = db.get_aggregate_samples(ts_start, ts_end, ids)
+    #     entries = prepare_data_for_date(date, entries,
+    #                                     self.system.timezone())
+    #
+    #     self.send_production(entries)
 
     # print out a message only if we're verbose
     def debug(self, message):
@@ -196,17 +192,17 @@ class PVOutputUploader(object):
                 mydata.pop(0)
                 if (my_delta != 0):
                     # fred = datetime.datetime.utcfromtimestamp(my_timestamp)
-                    print("Extra datapoint from me: %s %s"
-                          % (my_datetime, my_delta))
+                    print(("Extra datapoint from me: %s %s"
+                          % (my_datetime, my_delta)))
             elif their_datetime < my_datetime:
-                print("Extra datapoint from them: %s %s"
-                      % (their_datetime, their_delta))
+                print(("Extra datapoint from them: %s %s"
+                      % (their_datetime, their_delta)))
                 theirdata.pop(0)
             else:
                 if their_delta != my_delta:
-                    print(("production mismatch (timestamp=%d)"
-                           + " (them=%d us=%d)")
-                          % (my_datetime, their_delta, my_delta))
+                    print((("production mismatch (timestamp=%d)" +
+                           " (them=%d us=%d)")
+                          % (my_datetime, their_delta, my_delta)))
                 else:
                     self.debug("ALL GOOD (them=%d us=%d) (them=%d us=%d)"
                                % (their_datetime, my_datetime,
@@ -215,8 +211,8 @@ class PVOutputUploader(object):
                 mydata.pop(0)
 
         if theirdata:
-            print("There are %d on pvoutput.org which aren't in our data"
-                  % len(theirdata))
+            print(("There are %d on pvoutput.org which aren't in our data"
+                  % len(theirdata)))
             for output in theirdata:
                 self.debug("their extra: datetime=%s production=%s"
                            % (output[0], output[1]))
@@ -227,9 +223,9 @@ class PVOutputUploader(object):
                 my_delta = mine[1] - first_production
                 if my_delta != my_last_delta:  # zeroes at end of day
                     if not printed_mydata_warning_once:
-                        print(("There are %d extra readings in my database"
-                               + "which are not on pvoutput.org")
-                              % len(mydata))
+                        print((("There are %d extra readings in my database" +
+                               "which are not on pvoutput.org")
+                              % len(mydata)))
                         printed_mydata_warning_once = True
                     self.debug("my extra: timestamp=%s cumulative=%s"
                                % (mine[0], my_delta))
@@ -244,7 +240,7 @@ class PVOutputUploader(object):
                 continue
             limitdays = self.pvoutput.days_ago_accepted_by_api()
             if now - date < datetime.timedelta(days=limitdays):
-                print("date: %s" % date)
+                print(("date: %s" % date))
                 self.reconcile_date(date)
 
     # simply pull out data for inspection for a particular date/time
@@ -257,9 +253,9 @@ class PVOutputUploader(object):
         datapoints = self.db.get_entries(self.system.inverters(), timestamp)
         sum = 0
         for datapoint in datapoints:
-            print("Inverter (%s): %d" % (datapoint[2], datapoint[1]))
+            print(("Inverter (%s): %d" % (datapoint[2], datapoint[1])))
             sum += datapoint[1]
-        print("System (%s): %d" % (self.system.pvoutput_sid, sum))
+        print(("System (%s): %d" % (self.system.pvoutput_sid, sum)))
 
     # dodgy entry point to fix data already on server.
     # @param date date to work with in pvoutput format e.g. "20140731"
@@ -267,18 +263,18 @@ class PVOutputUploader(object):
     # @note untested
     def do_date(self, date, fix):
         if fix:
-            print(" delete data for a specific date (%s)" % date)
+            print((" delete data for a specific date (%s)" % date))
             day = self.pvoutput.parse_date_and_time(date, "00:00")
             self.pvoutput.deletestatus(day)
 
         if fix:
-            print(" upload data for a specific date (%s)" % date)
+            print((" upload data for a specific date (%s)" % date))
             day = self.pvoutput.parse_date_and_time(date, "00:00")
             self.upload_statuses_for_day(day)
-            sleep(20)  # so the reconcile works....
+            time.sleep(20)  # so the reconcile works....
 
         if True:
-            print("reconciling specific date (%s)" % date)
+            print(("reconciling specific date (%s)" % date))
             somedate = self.pvoutput.parse_date_and_time(date, '00:00')
             self.reconcile_date(somedate)
 

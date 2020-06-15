@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/python3
 #
 # sma2-explore - Interactive tool for analyzing SMAData2 protocol
 # Copyright (C) 2014 David Gibson <david@gibson.dropbear.id.au>
@@ -25,7 +25,10 @@ import signal
 import readline
 import time
 
-from smadata2.inverter.smabluetooth import *
+from smadata2.inverter.smabluetooth import Connection
+from smadata2.inverter.smabluetooth import OTYPE_HELLO, OTYPE_ERROR, \
+    OTYPE_VARVAL, OTYPE_GETVAR, OTYPE_PPP, OTYPE_PPP2, OVAR_SIGNAL
+from smadata2.inverter.smabluetooth import bytes2int, int2bytes16
 
 
 class Quit(Exception):
@@ -193,7 +196,7 @@ class SMAData2CLI(Connection):
         while True:
             sys.stdout.write("SMA2 %s >> " % self.remote_addr)
             try:
-                line = raw_input().split()
+                line = input().split()
             except EOFError:
                 return
 
@@ -236,8 +239,8 @@ class SMAData2CLI(Connection):
 
     def cmd_hello(self):
         self.tx_outer("00:00:00:00:00:00", self.remote_addr, OTYPE_HELLO,
-                      bytearray('\x00\x04\x70\x00\x01\x00\x00\x00'
-                                + '\x00\x01\x00\x00\x00'))
+                      bytearray('\x00\x04\x70\x00\x01\x00\x00\x00' +
+                                '\x00\x01\x00\x00\x00'))
 
     def cmd_getvar(self, varid):
         varid = int(varid, 16)
@@ -250,7 +253,7 @@ class SMAData2CLI(Connection):
         self.tx_ppp("ff:ff:ff:ff:ff:ff", protocol, payload)
 
     def cmd_send2(self, *args):
-        bi = [int(x, 16) for x in args]
+        bb = [int(x, 16) for x in args]
         a2 = bb[0]
         b1, b2 = bb[1], bb[2]
         c1, c2 = bb[3], bb[4]

@@ -1,8 +1,6 @@
-#! /usr/bin/env python
+#! /usr/bin/python3
 
 import argparse
-
-from nose.tools import *
 
 import smadata2.sma2mon
 

@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/python3
 #
 # sma2-upload-to-pvoutputorg - Upload generation history to pvoutput.org
 # Copyright (C) 2014 Peter Barker <pb-sma2@barker.dropbear.id.au>
@@ -17,13 +17,9 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-from __future__ import print_function
-
 import argparse
 import datetime
-from datetime import date
 import sys
-import time
 
 import smadata2.protocol
 import smadata2.config
@@ -119,7 +115,7 @@ class sidType():
                 self.system = system
                 break
         if self.system is None:
-            fatal("sid not found")
+            raise "sid not found"
 
     def __call__(self):
         print("__called__ called on datetimeType?!")

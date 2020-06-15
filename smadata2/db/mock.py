@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/python3
 #
 # smadata2.db - Database for logging data from SMA inverters
 # Copyright (C) 2014 David Gibson <david@gibson.dropbear.id.au>
@@ -17,39 +17,38 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-from __future__ import print_function
+from .base import BaseDatabase
 
-from base import BaseDatabase
 
 class MockDatabase(BaseDatabase):
     def __init__(self):
         super(MockDatabase, self).__init__()
-        self.historic = set()
+        self.samples = set()
 
-    def add_historic(self, serial, timestamp, total_yield):
-        self.historic.add((serial, timestamp, total_yield))
+    def add_sample(self, serial, timestamp, sample_type, total_yield):
+        self.samples.add((serial, timestamp, total_yield))
 
-    def get_one_historic(self, serial, timestamp):
-        for s, t, y in self.historic:
+    def get_one_sample(self, serial, timestamp):
+        for s, t, y in self.samples:
             if (s == serial) and (t == timestamp):
                 return y
         return None
 
-    def get_last_historic(self, serial):
-        stamps = set(t for s, t, y in self.historic)
+    def get_last_sample(self, serial, sample_type=None):
+        stamps = set(t for s, t, y in self.samples)
         if stamps:
             return max(stamps)
         else:
             return None
 
-    def get_aggregate_one_historic(self, ts, ids):
-        vals = set(y for s, t, y in self.historic
+    def get_aggregate_one_sample(self, ts, ids):
+        vals = set(y for s, t, y in self.samples
                    if (t == ts) and (s in ids))
         return sum(vals)
 
-    def get_aggregate_historic(self, from_ts, to_ts, ids):
+    def get_aggregate_samples(self, from_ts, to_ts, ids):
         rd = {}
-        for s, t, y in self.historic:
+        for s, t, y in self.samples:
             if (s in ids) and (t >= from_ts) and (t < to_ts):
                 if t not in rd:
                     rd[t] = y
